@@ -10,6 +10,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
+from oslo_concurrency import processutils
 from oslo_log import log
 
 from ironic_python_agent.extensions import base
@@ -28,7 +30,12 @@ class AttestationExtension(base.BaseAgentExtension):
         LOG.debug('Getting keylime agent information')
         port = "8890"  # hard-coded it for now, will change later
         # the keylime-agent uuid is system-uuid
-        uuid = utils.execute('dmidecode', '-s', 'system-uuid')
+        try:
+            uuid, _err = utils.execute('dmidecode', '-s', 'system-uuid')
+            LOG.info(_err)
+        except processutils.ProcessExecutionError as e:
+            LOG.error('Getting system-uuid failed with error: %s', e)
+            return
         # get the node ip address
         if self.agent.advertise_address is None:
             self.agent.set_agent_advertise_addr()
