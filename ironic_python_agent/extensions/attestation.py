@@ -32,9 +32,9 @@ class AttestationExtension(base.BaseAgentExtension):
         # get the node ip address
         if self.agent.advertise_address is None:
             self.agent.set_agent_advertise_addr()
-        ip = self.agent.advertise_address
-        LOG.debug('{"keylime_agent_uuid": %s, "ip": %s, \
+        ip = self.agent.advertise_address.hostname
+        LOG.debug('{"keylime_agent_uuid": %s, "keylime_agent_ip": %s, \
             "keylime_agent_port": %s}', uuid, ip, port)
         return {"keylime_agent_uuid": uuid,
-                "ip": ip,
+                "keylime_agent_ip": ip,
                 "keylime_agent_port": port}
