@@ -33,6 +33,7 @@ class AttestationExtension(base.BaseAgentExtension):
         try:
             uuid, _err = utils.execute('dmidecode', '-s', 'system-uuid')
             LOG.info(_err)
+            uuid = uuid.strip('\n')
         except processutils.ProcessExecutionError as e:
             LOG.error('Getting system-uuid failed with error: %s', e)
             return
