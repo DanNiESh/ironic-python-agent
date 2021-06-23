@@ -28,7 +28,7 @@ class AttestationExtension(base.BaseAgentExtension):
         :returns: A dict contains ip, uuid, port
         """
         LOG.debug('Getting keylime agent information')
-        port = "8890"  # hard-coded it for now, will change later
+        port = "9002"  # hard-coded it for now, will change later
         # the keylime-agent uuid is system-uuid
         try:
             uuid, _err = utils.execute('dmidecode', '-s', 'system-uuid')
