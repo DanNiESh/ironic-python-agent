@@ -10,7 +10,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 from oslo_concurrency import processutils
 from oslo_log import log
 
@@ -28,15 +27,21 @@ class AttestationExtension(base.BaseAgentExtension):
         :returns: A dict contains ip, uuid, port
         """
         LOG.debug('Getting keylime agent information')
-        port = "9002"  # hard-coded it for now, will change later
+        port = "9002"
         # the keylime-agent uuid is system-uuid
         try:
-            uuid, _err = utils.execute('dmidecode', '-s', 'system-uuid')
+            out, _err = utils.execute('journalctl', '-u', 'keylime-agent')
             LOG.info(_err)
-            uuid = uuid.strip('\n')
         except processutils.ProcessExecutionError as e:
-            LOG.error('Getting system-uuid failed with error: %s', e)
+            LOG.error('Getting keylime agent log failed with error: %s', e)
             return
+        # get the keylime-agent uuid from agent log
+        uuid = ''
+        out = out.splitlines()
+        for line in out:
+            if 'Agent UUID:' in line:
+                uuid = line.split(":")[-1].strip()
+
         # get the node ip address
         if self.agent.advertise_address is None:
             self.agent.set_agent_advertise_addr()

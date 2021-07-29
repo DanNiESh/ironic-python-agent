@@ -28,13 +28,15 @@ class TestAttestationExtension(base.IronicAgentTest):
     @mock.patch.object(utils, 'execute', autospec=True)
     def test_get_keylime_info(self, mock_execute):
         self.mock_agent.advertise_address = agent.Host('127.0.0.1', 9990)
-        mock_execute.return_value = ('uuid', None)
+        content = 'Agent UUID: uuid'
+        mock_execute.return_value = (content, None)
         expected_result = {'keylime_agent_uuid': 'uuid',
                            'keylime_agent_ip': '127.0.0.1',
-                           'keylime_agent_port': '8890'}
+                           'keylime_agent_port': '9002'}
         async_result = self.agent_extension.get_keylime_info()
         async_result.join()
         self.assertFalse(self.mock_agent.set_agent_advertise_addr.called)
-        mock_execute.assert_called_once_with('dmidecode', '-s', 'system-uuid')
+        mock_execute.assert_called_once_with(
+            'journalctl', '-u', 'keylime-agent')
         self.assertEqual(expected_result, async_result.command_result)
         self.assertEqual('SUCCEEDED', async_result.command_status)
