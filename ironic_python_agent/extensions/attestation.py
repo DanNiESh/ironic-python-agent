@@ -27,8 +27,8 @@ class AttestationExtension(base.BaseAgentExtension):
         :returns: A dict contains ip, uuid, port
         """
         LOG.debug('Getting keylime agent information')
-        port = "9002"
-        # the keylime-agent uuid is system-uuid
+        port = '9002'
+
         try:
             out, _err = utils.execute('journalctl', '-u', 'keylime-agent')
             LOG.info(_err)
@@ -51,3 +51,22 @@ class AttestationExtension(base.BaseAgentExtension):
         return {"keylime_agent_uuid": uuid,
                 "keylime_agent_ip": ip,
                 "keylime_agent_port": port}
+
+    @base.sync_command('get_keylime_attestation_files')
+    def get_allowlist(self):
+        """Get the allowlist.txt file and checksum on the node
+
+        :returns: A dict contains a gzipped and base64 encoded string
+                  of the allowlist and it's checksum.
+        """
+        LOG.debug('Getting keylime attestation files')
+        try:
+            out, _err = utils.execute('sha256sum', '/root/allowlist.txt', '<', 'checksum.txt')
+            LOG.info(_err)
+        except processutils.ProcessExecutionError as e:
+            LOG.error('Getting allowlist checksum failed with error: %s', e)
+            return
+        files = ['/root/allowlist.txt', '/root/checksum.txt']
+        file_list = utils.gzip_and_b64encode(io_dict=None, file_list=files)
+        return {'file_list': file_list}
+
