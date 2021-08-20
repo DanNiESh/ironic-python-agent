@@ -53,20 +53,23 @@ class AttestationExtension(base.BaseAgentExtension):
                 "keylime_agent_port": port}
 
     @base.sync_command('get_keylime_attestation_files')
-    def get_allowlist(self):
+    def get_keylime_attestation_files(self):
         """Get the allowlist.txt file and checksum on the node
 
         :returns: A dict contains a gzipped and base64 encoded string
                   of the allowlist and it's checksum.
         """
         LOG.debug('Getting keylime attestation files')
-        try:
-            out, _err = utils.execute('sha256sum', '/root/allowlist.txt', '<', 'checksum.txt')
-            LOG.info(_err)
-        except processutils.ProcessExecutionError as e:
-            LOG.error('Getting allowlist checksum failed with error: %s', e)
-            return
+        # try:
+        #     # utils.execute('touch', '/root/checksum.txt')
+        #     out, _err = utils.execute('sha256sum', '/root/allowlist.txt', '<', 'checksum.txt')
+        #     LOG.debug('{"checksum out": %s}', out)
+        #     LOG.info(_err)
+        # except processutils.ProcessExecutionError as e:
+        #     LOG.error('Getting allowlist checksum failed with error: %s', e)
+        #     return
         files = ['/root/allowlist.txt', '/root/checksum.txt']
         file_list = utils.gzip_and_b64encode(io_dict=None, file_list=files)
+        LOG.debug('{"file_list": %s}', file_list)
         return {'file_list': file_list}
 
