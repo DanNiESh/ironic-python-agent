@@ -10,6 +10,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from oslo_serialization import base64
+import tempfile
+import tarfile
+import os
 from oslo_concurrency import processutils
 from oslo_log import log
 
@@ -69,7 +73,54 @@ class AttestationExtension(base.BaseAgentExtension):
         #     LOG.error('Getting allowlist checksum failed with error: %s', e)
         #     return
         files = ['/root/allowlist.txt', '/root/checksum.txt']
-        file_list = utils.gzip_and_b64encode(io_dict=None, file_list=files)
-        LOG.debug('{"file_list": %s}', file_list)
-        return {'file_list': file_list}
+        file_list_encode = utils.gzip_and_b64encode(io_dict=None, file_list=files)
+        # LOG.debug('{"file_list": %s}', file_list_encode)
+
+        temp_files_gzipped = tempfile.NamedTemporaryFile()
+        data = base64.decode_as_bytes(file_list_encode)
+        temp_files_gzipped.write(data)
+        tars = tarfile.open(temp_files_gzipped.name)
+        temp_files_gzipped.close()
+        tar_checksum1 = tars.extractfile('root/checksum.txt')
+        tar_allowlist = tars.extractfile('root/allowlist.txt')
+
+        os.makedirs('/root/tardir1')
+
+        allowlist_path = os.path.join('/root/tardir1',
+                                'allowlist.txt')
+        try:
+            with open(allowlist_path, 'wb') as f:
+                f.write(tar_allowlist.read())
+        except Exception as e:
+            msg = ('Error write tar_allowlist: %s', e)
+            LOG.exception(msg)
+
+        checksum_path1 = os.path.join('/root/tardir1',
+                                'checksum.txt')
+        try:
+            with open(checksum_path1, 'wb') as f:
+                f.write(tar_checksum1.read())
+        except Exception as e:
+            msg = ('Error write tar_checksum1: %s', e)
+            LOG.exception(msg)
+
+
+        os.makedirs('/root/tardir2')
+        checksum_path2 = os.path.join('root/tardir2',
+                                'checksum.txt')
+
+
+        os.makedirs('/root/tardir3')
+
+        tar_zip_path = os.path.join('/root/tardir3',
+                                'tar_zip')
+        try:
+            with open(tar_zip_path, 'wb') as f:
+                f.write(data)
+        except Exception as e:
+            msg = ('Error write tar_zip_data: %s', e)
+            LOG.exception(msg)
+
+        LOG.debug('Get tarfile members:%s', tars.getmembers())
+        return {'file_list': file_list_encode}
 

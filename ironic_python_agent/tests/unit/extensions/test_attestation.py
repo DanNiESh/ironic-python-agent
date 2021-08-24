@@ -40,3 +40,17 @@ class TestAttestationExtension(base.IronicAgentTest):
             'journalctl', '-u', 'keylime-agent')
         self.assertEqual(expected_result, async_result.command_result)
         self.assertEqual('SUCCEEDED', async_result.command_status)
+
+    # @mock.patch.object(utils, 'gzip_and_b64encode', autospec=True)
+    # def test_get_keylime_attestation_files(self, mock_gzip_b64):
+    #     ret = 'allowlist and checksum'
+    #     mock_gzip_b64.return_value = ret
+    #     file_list_encoded = self.agent_extension.\
+    #         get_keylime_attestation_files().command_result.get('file_list')
+    #     self.assertEqual(ret, file_list_encoded)
+    #     mock_gzip_b64.assert_called_once_with(
+    #         file_list=['/root/allowlist.txt', '/root/checksum.txt'], io_dict=None)
+
+    def test_get_keylime_attestation_files(self):
+        file_list_encoded = self.agent_extension.\
+            get_keylime_attestation_files().command_result.get('file_list')
