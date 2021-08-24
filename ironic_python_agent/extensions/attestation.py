@@ -91,6 +91,7 @@ class AttestationExtension(base.BaseAgentExtension):
         try:
             with open(allowlist_path, 'wb') as f:
                 f.write(tar_allowlist.read())
+                f.flush()
         except Exception as e:
             msg = ('Error write tar_allowlist: %s', e)
             LOG.exception(msg)
@@ -100,6 +101,8 @@ class AttestationExtension(base.BaseAgentExtension):
         try:
             with open(checksum_path1, 'wb') as f:
                 f.write(tar_checksum1.read())
+                f.flush()
+
         except Exception as e:
             msg = ('Error write tar_checksum1: %s', e)
             LOG.exception(msg)
@@ -117,6 +120,7 @@ class AttestationExtension(base.BaseAgentExtension):
         try:
             with open(tar_zip_path, 'wb') as f:
                 f.write(data)
+                f.flush()
         except Exception as e:
             msg = ('Error write tar_zip_data: %s', e)
             LOG.exception(msg)
