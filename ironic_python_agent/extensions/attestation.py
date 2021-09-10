@@ -43,7 +43,9 @@ class AttestationExtension(base.BaseAgentExtension):
         uuid = ''
         out = out.splitlines()
         for line in out:
+            LOG.info("agent log...")
             if 'Agent UUID:' in line:
+                LOG.info("found uuid line: %s", line)
                 uuid = line.split(":")[-1].strip()
 
         # get the node ip address
@@ -102,15 +104,9 @@ class AttestationExtension(base.BaseAgentExtension):
             with open(checksum_path1, 'wb') as f:
                 f.write(tar_checksum1.read())
                 f.flush()
-
         except Exception as e:
             msg = ('Error write tar_checksum1: %s', e)
             LOG.exception(msg)
-
-
-        os.makedirs('/root/tardir2')
-        checksum_path2 = os.path.join('root/tardir2',
-                                'checksum.txt')
 
 
         os.makedirs('/root/tardir3')
