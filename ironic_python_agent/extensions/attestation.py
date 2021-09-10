@@ -43,7 +43,7 @@ class AttestationExtension(base.BaseAgentExtension):
         uuid = ''
         out = out.splitlines()
         for line in out:
-            LOG.info("agent log...")
+            LOG.info("agent log: %s", line)
             if 'Agent UUID:' in line:
                 LOG.info("found uuid line: %s", line)
                 uuid = line.split(":")[-1].strip()
