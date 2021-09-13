@@ -10,14 +10,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from oslo_serialization import base64
 import tempfile
-import tarfile
 import os
 from oslo_concurrency import processutils
 from oslo_log import log
+import configparser
+import shutil
+import time
+
 
 from ironic_python_agent.extensions import base
+from ironic_python_agent import errors
+
 from ironic_python_agent import utils
 
 LOG = log.getLogger(__name__)
@@ -26,101 +30,64 @@ LOG = log.getLogger(__name__)
 class AttestationExtension(base.BaseAgentExtension):
     @base.async_command('get_keylime_info')
     def get_keylime_info(self):
-        """Get the uuid, ip, port of keylime-agent when it's running
+        """Get the uuid, ip, port of keylime-agent
 
         :returns: A dict contains ip, uuid, port
         """
         LOG.debug('Getting keylime agent information')
-        port = '9002'
-
+        # remove this !!!
+        time.sleep(60)
+        # get keylime-agent's port from config file
+        port = None
         try:
-            out, _err = utils.execute('journalctl', '-u', 'keylime-agent')
-            LOG.info(_err)
+            config = configparser.ConfigParser()
+            config.read('/etc/keylime.conf')
+            if config.has_option('cloud_agent', 'cloudagent_port'):
+                port = config.get(
+                    'cloud_agent', 'cloudagent_port')
+        except Exception as e:
+            error_msg = ('Getting cloudagent_port failed with an error: %s' % e)
+            LOG.error(error_msg)
+            raise errors.CommandExecutionError(error_msg)
+
+        # get keylime-agent's uuid from tpm ek
+        uuid = None
+        try:
+            cmd = "tpm2_getcap handles-persistent | head -1 | sed 's/- //g'"
+            genesis_tpm_handle, _err = utils.execute(cmd, shell=True)
+            LOG.debug("Get genesis_tpm_handle %s", genesis_tpm_handle)
+            genesis_tpm_temp = tempfile.mkdtemp()
+            LOG.debug("Get genesis_tpm_temp %s", genesis_tpm_temp)
+            path_ek = genesis_tpm_temp + "/tpm_ek"
+            LOG.debug("ek path is: %s", path_ek)
+            utils.execute("tpm2_readpublic", "-c", genesis_tpm_handle.strip(),
+                "-o", path_ek, "-f", "pem")
+            hash_ek, _err = utils.execute("sha256sum", path_ek)
+            LOG.debug("Get hash_ek:%s", hash_ek)
+            uuid = hash_ek.split()[0]
         except processutils.ProcessExecutionError as e:
-            LOG.error('Getting keylime agent log failed with error: %s', e)
-            return
-        # get the keylime-agent uuid from agent log
-        uuid = ''
-        out = out.splitlines()
-        for line in out:
-            LOG.info("agent log: %s", line)
-            if 'Agent UUID:' in line:
-                LOG.info("found uuid line: %s", line)
-                uuid = line.split(":")[-1].strip()
+            error_msg = ('Getting hash_ek failed with an error: %s' % e)
+            LOG.error(error_msg)
+            raise errors.CommandExecutionError(error_msg)
+        finally:
+            shutil.rmtree(genesis_tpm_temp)
 
         # get the node ip address
+        ip = None
         if self.agent.advertise_address is None:
             self.agent.set_agent_advertise_addr()
         ip = self.agent.advertise_address.hostname
+
         LOG.debug('{"keylime_agent_uuid": %s, "keylime_agent_ip": %s, \
             "keylime_agent_port": %s}', uuid, ip, port)
-        return {"keylime_agent_uuid": uuid,
+
+        keylime_dict = {"keylime_agent_uuid": uuid,
                 "keylime_agent_ip": ip,
                 "keylime_agent_port": port}
 
-    @base.sync_command('get_keylime_attestation_files')
-    def get_keylime_attestation_files(self):
-        """Get the allowlist.txt file and checksum on the node
+        if any([v is None for v in keylime_dict.values()]):
+            msg = 'Incomplete keylime agent information!'
+            LOG.error(msg)
+            raise errors.CommandExecutionError(msg)
 
-        :returns: A dict contains a gzipped and base64 encoded string
-                  of the allowlist and it's checksum.
-        """
-        LOG.debug('Getting keylime attestation files')
-        # try:
-        #     # utils.execute('touch', '/root/checksum.txt')
-        #     out, _err = utils.execute('sha256sum', '/root/allowlist.txt', '<', 'checksum.txt')
-        #     LOG.debug('{"checksum out": %s}', out)
-        #     LOG.info(_err)
-        # except processutils.ProcessExecutionError as e:
-        #     LOG.error('Getting allowlist checksum failed with error: %s', e)
-        #     return
-        files = ['/root/allowlist.txt', '/root/checksum.txt']
-        file_list_encode = utils.gzip_and_b64encode(io_dict=None, file_list=files)
-        # LOG.debug('{"file_list": %s}', file_list_encode)
-
-        temp_files_gzipped = tempfile.NamedTemporaryFile()
-        data = base64.decode_as_bytes(file_list_encode)
-        temp_files_gzipped.write(data)
-        tars = tarfile.open(temp_files_gzipped.name)
-        temp_files_gzipped.close()
-        tar_checksum1 = tars.extractfile('root/checksum.txt')
-        tar_allowlist = tars.extractfile('root/allowlist.txt')
-
-        os.makedirs('/root/tardir1')
-
-        allowlist_path = os.path.join('/root/tardir1',
-                                'allowlist.txt')
-        try:
-            with open(allowlist_path, 'wb') as f:
-                f.write(tar_allowlist.read())
-                f.flush()
-        except Exception as e:
-            msg = ('Error write tar_allowlist: %s', e)
-            LOG.exception(msg)
-
-        checksum_path1 = os.path.join('/root/tardir1',
-                                'checksum.txt')
-        try:
-            with open(checksum_path1, 'wb') as f:
-                f.write(tar_checksum1.read())
-                f.flush()
-        except Exception as e:
-            msg = ('Error write tar_checksum1: %s', e)
-            LOG.exception(msg)
-
-
-        os.makedirs('/root/tardir3')
-
-        tar_zip_path = os.path.join('/root/tardir3',
-                                'tar_zip')
-        try:
-            with open(tar_zip_path, 'wb') as f:
-                f.write(data)
-                f.flush()
-        except Exception as e:
-            msg = ('Error write tar_zip_data: %s', e)
-            LOG.exception(msg)
-
-        LOG.debug('Get tarfile members:%s', tars.getmembers())
-        return {'file_list': file_list_encode}
-
+        return keylime_dict

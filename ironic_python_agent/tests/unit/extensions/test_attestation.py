@@ -11,46 +11,126 @@
 # limitations under the License.
 
 from unittest import mock
-
+import tempfile
+import configparser
 from ironic_python_agent import agent
 from ironic_python_agent.extensions import attestation
 from ironic_python_agent.tests.unit import base
+from ironic_python_agent import errors
 from ironic_python_agent import utils
+from oslo_concurrency import processutils
+import shutil
 
 
+@mock.patch.object(utils, 'execute', autospec=True)
+@mock.patch.object(tempfile, 'mkdtemp', lambda *_: '/tmp/tmp_dir')
+@mock.patch.object(shutil, 'rmtree', lambda *_: None)
 class TestAttestationExtension(base.IronicAgentTest):
     def setUp(self):
         super(TestAttestationExtension, self).setUp()
         self.mock_agent = mock.Mock(spec=agent.IronicPythonAgent)
         self.agent_extension = attestation.AttestationExtension(
             agent=self.mock_agent)
+        self.tmp_dir = '/tmp/tmp_dir'
 
-    @mock.patch.object(utils, 'execute', autospec=True)
-    def test_get_keylime_info(self, mock_execute):
+    @mock.patch('configparser.ConfigParser.read', autospec=True)
+    @mock.patch('configparser.ConfigParser.has_option', autospec=True)
+    @mock.patch('configparser.ConfigParser.get', autospec=True)
+    def test_get_keylime_info(self, mock_cpget,
+            mock_cpoption, mock_cpread, mock_execute):
+        mock_cpread.return_value = None
+        mock_cpoption.return_value = True
+        mock_cpget.return_value = '9002'
+
+        mock_execute.side_effect = [
+            ('0x00000001\n', ''),  # get genesis_tpm_handle
+            ('', ''), # tpm2_readpublic
+            ('uuid_hash_ek ' + self.tmp_dir + '/tpm_ek', ''),  # get hash_ek
+        ]
         self.mock_agent.advertise_address = agent.Host('127.0.0.1', 9990)
-        content = 'Agent UUID: uuid'
-        mock_execute.return_value = (content, None)
-        expected_result = {'keylime_agent_uuid': 'uuid',
+
+        expected_exec = [
+            mock.call("tpm2_getcap handles-persistent | head -1 | sed 's/- //g'", shell=True),
+            mock.call('tpm2_readpublic', '-c', '0x00000001',
+                '-o', self.tmp_dir + '/tpm_ek', '-f', 'pem'),
+            mock.call('sha256sum', self.tmp_dir + '/tpm_ek')
+        ]
+
+        expected_result = {'keylime_agent_uuid': 'uuid_hash_ek',
                            'keylime_agent_ip': '127.0.0.1',
                            'keylime_agent_port': '9002'}
+
         async_result = self.agent_extension.get_keylime_info()
         async_result.join()
+
+        mock_cpread.assert_called_once()
+        mock_cpoption.assert_called_once()
+        mock_cpget.assert_called_once()
+        mock_execute.assert_has_calls(expected_exec, any_order=False)
         self.assertFalse(self.mock_agent.set_agent_advertise_addr.called)
-        mock_execute.assert_called_once_with(
-            'journalctl', '-u', 'keylime-agent')
         self.assertEqual(expected_result, async_result.command_result)
         self.assertEqual('SUCCEEDED', async_result.command_status)
 
-    # @mock.patch.object(utils, 'gzip_and_b64encode', autospec=True)
-    # def test_get_keylime_attestation_files(self, mock_gzip_b64):
-    #     ret = 'allowlist and checksum'
-    #     mock_gzip_b64.return_value = ret
-    #     file_list_encoded = self.agent_extension.\
-    #         get_keylime_attestation_files().command_result.get('file_list')
-    #     self.assertEqual(ret, file_list_encoded)
-    #     mock_gzip_b64.assert_called_once_with(
-    #         file_list=['/root/allowlist.txt', '/root/checksum.txt'], io_dict=None)
+    @mock.patch('configparser.ConfigParser.read', autospec=True)
+    @mock.patch('configparser.ConfigParser.has_option', autospec=True)
+    @mock.patch('configparser.ConfigParser.get', autospec=True)
+    def test_get_keylime_info_port_error(self, mock_cpget,
+            mock_cpoption, mock_cpread, mock_execute):
+        mock_cpread.side_effect = errors.CommandExecutionError('read error')
+        async_result = self.agent_extension.get_keylime_info()
+        async_result.join()
+        self.assertEqual('FAILED', async_result.command_status)
+        self.assertFalse(mock_cpoption.called)
+        self.assertFalse(mock_cpget.called)
 
-    def test_get_keylime_attestation_files(self):
-        file_list_encoded = self.agent_extension.\
-            get_keylime_attestation_files().command_result.get('file_list')
+    @mock.patch('configparser.ConfigParser.read', autospec=True)
+    @mock.patch('configparser.ConfigParser.has_option', autospec=True)
+    @mock.patch('configparser.ConfigParser.get', autospec=True)
+    def test_get_keylime_info_uuid_error(self, mock_cpget,
+            mock_cpoption, mock_cpread, mock_execute):
+        mock_cpread.return_value = None
+        mock_cpoption.return_value = True
+        mock_cpget.return_value = '9002'
+        mock_execute.side_effect = [
+            ('0x00000001\n', ''),  # get genesis_tpm_handle
+            ('', ''), # tpm2_readpublic
+            processutils.ProcessExecutionError(
+                stderr='get hash_ek error')  # get hash_ek
+        ]
+        async_result = self.agent_extension.get_keylime_info()
+        async_result.join()
+        self.assertEqual('FAILED', async_result.command_status)
+
+    @mock.patch('configparser.ConfigParser.read', autospec=True)
+    @mock.patch('configparser.ConfigParser.has_option', autospec=True)
+    @mock.patch('configparser.ConfigParser.get', autospec=True)
+    def test_get_keylime_info_ip_error(self, mock_cpget,
+            mock_cpoption, mock_cpread, mock_execute):
+        mock_cpread.return_value = None
+        mock_cpoption.return_value = True
+        mock_cpget.return_value = '9002'
+
+        mock_execute.side_effect = [
+            ('0x00000001\n', ''),  # get genesis_tpm_handle
+            ('', ''), # tpm2_readpublic
+            ('uuid_hash_ek ' + self.tmp_dir + '/tpm_ek', ''),  # get hash_ek
+        ]
+        # set the ip to None
+        self.mock_agent.advertise_address = agent.Host(None, None)
+
+        expected_exec = [
+            mock.call("tpm2_getcap handles-persistent | head -1 | sed 's/- //g'", shell=True),
+            mock.call('tpm2_readpublic', '-c', '0x00000001',
+                '-o', self.tmp_dir + '/tpm_ek', '-f', 'pem'),
+            mock.call('sha256sum', self.tmp_dir + '/tpm_ek')
+        ]
+
+        async_result = self.agent_extension.get_keylime_info()
+        async_result.join()
+
+        mock_cpread.assert_called_once()
+        mock_cpoption.assert_called_once()
+        mock_cpget.assert_called_once()
+        mock_execute.assert_has_calls(expected_exec, any_order=False)
+        self.assertFalse(self.mock_agent.set_agent_advertise_addr.called)
+        self.assertEqual('FAILED', async_result.command_status)
