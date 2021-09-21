@@ -88,6 +88,8 @@ class IronicPythonAgentHeartbeater(threading.Thread):
         self.stop_event = threading.Event()
         self.api = agent.api_client
         self.interval = 0
+        self.heartbeat_forced = False
+        self.previous_heartbeat = 0
 
     def run(self):
         """Start the heartbeat thread."""
@@ -95,9 +97,20 @@ class IronicPythonAgentHeartbeater(threading.Thread):
         LOG.info('Starting heartbeater')
         self.agent.set_agent_advertise_addr()
 
-        while not self.stop_event.wait(self.interval):
-            self.do_heartbeat()
+        while not self.stop_event.wait(min(self.interval, 5)):
+            if self._heartbeat_expected():
+                self.do_heartbeat()
             eventlet.sleep(0)
+
+    def _heartbeat_expected(self):
+        # Normal heartbeating
+        if _time() > self.previous_heartbeat + self.interval:
+            return True
+
+        # Forced heartbeating, but once in 5 seconds
+        if (self.heartbeat_forced
+                and _time() > self.previous_heartbeat + 5):
+            return True
 
     def do_heartbeat(self):
         """Send a heartbeat to Ironic."""
@@ -109,21 +122,22 @@ class IronicPythonAgentHeartbeater(threading.Thread):
                 generated_cert=self.agent.generated_cert,
             )
             LOG.info('heartbeat successful')
+            self.heartbeat_forced = False
+            self.previous_heartbeat = _time()
         except errors.HeartbeatConflictError:
-            LOG.warning('conflict error sending heartbeat to {}'.format(
-                self.agent.api_url))
+            LOG.warning('conflict error sending heartbeat to %s',
+                        self.agent.api_url)
         except Exception:
-            LOG.exception('error sending heartbeat to {}'.format(
-                self.agent.api_url))
+            LOG.exception('error sending heartbeat to %s', self.agent.api_url)
         finally:
             interval_multiplier = random.uniform(self.min_jitter_multiplier,
                                                  self.max_jitter_multiplier)
             self.interval = self.agent.heartbeat_timeout * interval_multiplier
-            log_msg = 'sleeping before next heartbeat, interval: {0}'
-            LOG.info(log_msg.format(self.interval))
+            LOG.info('sleeping before next heartbeat, interval: %s',
+                     self.interval)
 
     def force_heartbeat(self):
-        self.do_heartbeat()
+        self.heartbeat_forced = True
 
     def stop(self):
         """Stop the heartbeat thread."""

@@ -236,8 +236,8 @@ class TestImageExtension(base.IronicAgentTest):
                     mock.call('udevadm', 'settle'),
                     mock.call('mount', self.fake_efi_system_part,
                               self.fake_dir + '/boot/efi'),
-                    mock.call('efibootmgr'),
-                    mock.call('efibootmgr', '-c', '-d', self.fake_dev,
+                    mock.call('efibootmgr', '-v'),
+                    mock.call('efibootmgr', '-v', '-c', '-d', self.fake_dev,
                               '-p', '1', '-w',
                               '-L', 'ironic1', '-l',
                               '\\EFI\\BOOT\\BOOTX64.EFI'),
@@ -283,8 +283,8 @@ class TestImageExtension(base.IronicAgentTest):
                     mock.call('udevadm', 'settle'),
                     mock.call('mount', self.fake_efi_system_part,
                               self.fake_dir + '/boot/efi'),
-                    mock.call('efibootmgr'),
-                    mock.call('efibootmgr', '-c', '-d', self.fake_dev,
+                    mock.call('efibootmgr', '-v'),
+                    mock.call('efibootmgr', '-v', '-c', '-d', self.fake_dev,
                               '-p', '1', '-w',
                               '-L', 'ironic1', '-l',
                               '\\EFI\\BOOT\\BOOTX64.EFI'),
@@ -335,8 +335,8 @@ efibootmgr: ** Warning ** : Boot0005 has same label ironic1\n
                     mock.call('udevadm', 'settle'),
                     mock.call('mount', self.fake_efi_system_part,
                               self.fake_dir + '/boot/efi'),
-                    mock.call('efibootmgr'),
-                    mock.call('efibootmgr', '-c', '-d', self.fake_dev,
+                    mock.call('efibootmgr', '-v'),
+                    mock.call('efibootmgr', '-v', '-c', '-d', self.fake_dev,
                               '-p', '1', '-w',
                               '-L', 'ironic1', '-l',
                               '\\EFI\\BOOT\\BOOTX64.EFI'),
@@ -387,12 +387,12 @@ efibootmgr: ** Warning ** : Boot0005 has same label ironic1\n
                     mock.call('udevadm', 'settle'),
                     mock.call('mount', self.fake_efi_system_part,
                               self.fake_dir + '/boot/efi'),
-                    mock.call('efibootmgr'),
-                    mock.call('efibootmgr', '-c', '-d', self.fake_dev,
+                    mock.call('efibootmgr', '-v'),
+                    mock.call('efibootmgr', '-v', '-c', '-d', self.fake_dev,
                               '-p', '1', '-w',
                               '-L', 'ironic1', '-l',
                               '\\EFI\\BOOT\\BOOTX64.EFI'),
-                    mock.call('efibootmgr', '-c', '-d', self.fake_dev,
+                    mock.call('efibootmgr', '-v', '-c', '-d', self.fake_dev,
                               '-p', '1', '-w',
                               '-L', 'ironic2', '-l',
                               '\\WINDOWS\\system32\\winload.efi'),
@@ -576,7 +576,7 @@ efibootmgr: ** Warning ** : Boot0005 has same label ironic1\n
                                            uuid=self.fake_prep_boot_part_uuid)
         self.assertFalse(mock_dispatch.called)
 
-    @mock.patch.object(os.path, 'ismount', lambda *_: True)
+    @mock.patch.object(os.path, 'ismount', lambda *_: False)
     @mock.patch.object(os.path, 'exists', lambda *_: False)
     @mock.patch.object(image, '_is_bootloader_loaded', lambda *_: True)
     @mock.patch.object(image, '_append_uefi_to_fstab', autospec=True)
@@ -609,6 +609,7 @@ efibootmgr: ** Warning ** : Boot0005 has same label ironic1\n
                               self.fake_dir + '/run'),
                     mock.call('mount', '-t', 'sysfs', 'none',
                               self.fake_dir + '/sys'),
+                    mock.call('mount', '/dev/fake2', self.fake_dir),
                     mock.call(('chroot %s /bin/sh -c "mount -a -t vfat"' %
                               (self.fake_dir)), shell=True,
                               env_variables={
@@ -664,7 +665,7 @@ efibootmgr: ** Warning ** : Boot0005 has same label ironic1\n
         mock_append_to_fstab.assert_called_with(self.fake_dir,
                                                 self.fake_efi_system_part_uuid)
 
-    @mock.patch.object(os.path, 'ismount', lambda *_: True)
+    @mock.patch.object(os.path, 'ismount', lambda *_: False)
     @mock.patch.object(image, '_is_bootloader_loaded', lambda *_: True)
     @mock.patch.object(os.path, 'exists', autospec=True)
     @mock.patch.object(hardware, 'is_md_device', autospec=True)
@@ -706,6 +707,7 @@ efibootmgr: ** Warning ** : Boot0005 has same label ironic1\n
                               self.fake_dir + '/run'),
                     mock.call('mount', '-t', 'sysfs', 'none',
                               self.fake_dir + '/sys'),
+                    mock.call('mount', '/dev/fake2', self.fake_dir),
                     mock.call(('chroot %s /bin/sh -c "mount -a -t vfat"' %
                               (self.fake_dir)), shell=True,
                               env_variables={
@@ -760,7 +762,7 @@ efibootmgr: ** Warning ** : Boot0005 has same label ironic1\n
         self.assertFalse(mock_dispatch.called)
 
     @mock.patch.object(image, '_efi_boot_setup', lambda *_: False)
-    @mock.patch.object(os.path, 'ismount', lambda *_: True)
+    @mock.patch.object(os.path, 'ismount', lambda *_: False)
     @mock.patch.object(image, '_is_bootloader_loaded', lambda *_: True)
     @mock.patch.object(os.path, 'exists', autospec=True)
     @mock.patch.object(hardware, 'is_md_device', autospec=True)
@@ -815,6 +817,7 @@ efibootmgr: ** Warning ** : Boot0005 has same label ironic1\n
                                   'GRUB_SAVEDEFAULT': 'true'},
                               use_standard_locale=True),
                     mock.call('umount', self.fake_dir + '/boot/efi'),
+                    mock.call('mount', '/dev/fake2', self.fake_dir),
                     # NOTE(TheJulia): chroot mount is for whole disk images
                     mock.call(('chroot %s /bin/sh -c "mount -a -t vfat"' %
                               (self.fake_dir)), shell=True,
@@ -1037,7 +1040,7 @@ efibootmgr: ** Warning ** : Boot0005 has same label ironic1\n
                                            uuid=self.fake_efi_system_part_uuid)
         self.assertFalse(mock_dispatch.called)
 
-    @mock.patch.object(os.path, 'ismount', lambda *_: True)
+    @mock.patch.object(os.path, 'ismount', lambda *_: False)
     @mock.patch.object(image, '_is_bootloader_loaded', lambda *_: False)
     @mock.patch.object(image, '_append_uefi_to_fstab', autospec=True)
     @mock.patch.object(image, '_preserve_efi_assets', autospec=True)
@@ -1089,6 +1092,128 @@ efibootmgr: ** Warning ** : Boot0005 has same label ironic1\n
                                   'GRUB_DISABLE_OS_PROBER': 'true',
                                   'GRUB_SAVEDEFAULT': 'true'},
                               use_standard_locale=True),
+                    mock.call('mount', '/dev/fake2', self.fake_dir),
+                    mock.call(('chroot %s /bin/sh -c "mount -a -t vfat"' %
+                              (self.fake_dir)), shell=True,
+                              env_variables={
+                                  'PATH': '/sbin:/bin:/usr/sbin:/sbin'}),
+                    mock.call('mount', self.fake_efi_system_part,
+                              self.fake_dir + '/boot/efi'),
+                    mock.call(('chroot %s /bin/sh -c "grub2-install"' %
+                               self.fake_dir), shell=True,
+                              env_variables={
+                                  'PATH': '/sbin:/bin:/usr/sbin:/sbin'}),
+                    mock.call(('chroot %s /bin/sh -c '
+                              '"grub2-install --removable"' %
+                               self.fake_dir), shell=True,
+                              env_variables={
+                                  'PATH': '/sbin:/bin:/usr/sbin:/sbin'}),
+                    mock.call(
+                        'umount', self.fake_dir + '/boot/efi',
+                        attempts=3, delay_on_retry=True),
+                    mock.call('mount', self.fake_efi_system_part,
+                              '/tmp/fake-dir/boot/efi'),
+                    mock.call(('chroot %s /bin/sh -c '
+                               '"grub2-mkconfig -o '
+                               '/boot/grub2/grub.cfg"' % self.fake_dir),
+                              shell=True,
+                              env_variables={
+                                  'PATH': '/sbin:/bin:/usr/sbin:/sbin',
+                                  'GRUB_DISABLE_OS_PROBER': 'true',
+                                  'GRUB_SAVEDEFAULT': 'true'},
+                              use_standard_locale=True),
+                    mock.call('umount', self.fake_dir + '/boot/efi',
+                              attempts=3, delay_on_retry=True),
+                    mock.call(('chroot %s /bin/sh -c "umount -a -t vfat"' %
+                              (self.fake_dir)), shell=True,
+                              env_variables={
+                                  'PATH': '/sbin:/bin:/usr/sbin:/sbin'}),
+                    mock.call('umount', self.fake_dir + '/dev',
+                              attempts=3, delay_on_retry=True),
+                    mock.call('umount', self.fake_dir + '/proc',
+                              attempts=3, delay_on_retry=True),
+                    mock.call('umount', self.fake_dir + '/run',
+                              attempts=3, delay_on_retry=True),
+                    mock.call('umount', self.fake_dir + '/sys',
+                              attempts=3, delay_on_retry=True),
+                    mock.call('umount', self.fake_dir, attempts=3,
+                              delay_on_retry=True)]
+
+        mkdir_mock.assert_not_called()
+        mock_execute.assert_has_calls(expected)
+        mock_get_part_uuid.assert_any_call(self.fake_dev,
+                                           uuid=self.fake_root_uuid)
+        mock_get_part_uuid.assert_any_call(self.fake_dev,
+                                           uuid=self.fake_efi_system_part_uuid)
+        self.assertFalse(mock_dispatch.called)
+        mock_preserve_efi_assets.assert_called_with(
+            self.fake_dir,
+            self.fake_dir + '/boot/efi/EFI',
+            '/dev/fake1',
+            self.fake_dir + '/boot/efi')
+        mock_append_to_fstab.assert_called_with(self.fake_dir,
+                                                self.fake_efi_system_part_uuid)
+
+    @mock.patch.object(os.path, 'ismount', lambda *_: False)
+    @mock.patch.object(image, '_is_bootloader_loaded', lambda *_: False)
+    @mock.patch.object(image, '_append_uefi_to_fstab', autospec=True)
+    @mock.patch.object(image, '_preserve_efi_assets', autospec=True)
+    @mock.patch.object(image, '_efi_boot_setup', autospec=True)
+    @mock.patch.object(os.path, 'exists', autospec=True)
+    @mock.patch.object(hardware, 'is_md_device', autospec=True)
+    @mock.patch.object(hardware, 'md_get_raid_devices', autospec=True)
+    @mock.patch.object(os, 'environ', autospec=True)
+    @mock.patch.object(os, 'makedirs', autospec=True)
+    @mock.patch.object(image, '_get_partition', autospec=True)
+    def test__install_grub2_uefi_partition_image_with_preserve_failure2(
+            self, mock_get_part_uuid, mkdir_mock,
+            environ_mock, mock_md_get_raid_devices,
+            mock_is_md_device, mock_exists,
+            mock_efi_setup,
+            mock_preserve_efi_assets,
+            mock_append_to_fstab,
+            mock_execute, mock_dispatch):
+        mock_exists.return_value = True
+        mock_efi_setup.side_effect = Exception('meow')
+        mock_get_part_uuid.side_effect = [self.fake_root_part,
+                                          self.fake_efi_system_part]
+        environ_mock.get.return_value = '/sbin'
+        mock_is_md_device.return_value = False
+        mock_md_get_raid_devices.return_value = {}
+        mock_preserve_efi_assets.return_value = None
+        exec_results = [('', '')] * 21
+        already_exists = processutils.ProcessExecutionError(
+            '/dev is already mounted at /path')
+        # Mark mounts as already mounted, which is where os.path.ismount
+        # usage corresponds.
+        exec_results[6] = already_exists
+        exec_results[8] = already_exists
+
+        image._install_grub2(
+            self.fake_dev, root_uuid=self.fake_root_uuid,
+            efi_system_part_uuid=self.fake_efi_system_part_uuid,
+            target_boot_mode='uefi')
+        self.assertFalse(mock_efi_setup.called)
+
+        expected = [mock.call('mount', '/dev/fake2', self.fake_dir),
+                    mock.call('mount', '-o', 'bind', '/dev',
+                              self.fake_dir + '/dev'),
+                    mock.call('mount', '-o', 'bind', '/proc',
+                              self.fake_dir + '/proc'),
+                    mock.call('mount', '-o', 'bind', '/run',
+                              self.fake_dir + '/run'),
+                    mock.call('mount', '-t', 'sysfs', 'none',
+                              self.fake_dir + '/sys'),
+                    mock.call(('chroot %s /bin/sh -c '
+                               '"grub2-mkconfig -o '
+                               '/boot/grub2/grub.cfg"' % self.fake_dir),
+                              shell=True,
+                              env_variables={
+                                  'PATH': '/sbin:/bin:/usr/sbin:/sbin',
+                                  'GRUB_DISABLE_OS_PROBER': 'true',
+                                  'GRUB_SAVEDEFAULT': 'true'},
+                              use_standard_locale=True),
+                    mock.call('mount', '/dev/fake2', self.fake_dir),
                     mock.call(('chroot %s /bin/sh -c "mount -a -t vfat"' %
                               (self.fake_dir)), shell=True,
                               env_variables={
@@ -1239,7 +1364,7 @@ efibootmgr: ** Warning ** : Boot0005 has same label ironic1\n
         self.assertFalse(mock_dispatch.called)
         self.assertEqual(2, mock_oslistdir.call_count)
 
-    @mock.patch.object(os.path, 'ismount', lambda *_: True)
+    @mock.patch.object(os.path, 'ismount', lambda *_: False)
     @mock.patch.object(image, '_is_bootloader_loaded', lambda *_: False)
     @mock.patch.object(os, 'listdir', autospec=True)
     @mock.patch.object(image, '_append_uefi_to_fstab', autospec=True)
@@ -1284,7 +1409,7 @@ efibootmgr: ** Warning ** : Boot0005 has same label ironic1\n
                     mock.call('mount', '-t', 'vfat', '/dev/fake1',
                               self.fake_dir + '/boot/efi'),
                     mock.call('umount', self.fake_dir + '/boot/efi'),
-
+                    mock.call('mount', '/dev/fake2', self.fake_dir),
                     mock.call(('chroot %s /bin/sh -c "mount -a -t vfat"' %
                               (self.fake_dir)), shell=True,
                               env_variables={
@@ -2101,8 +2226,8 @@ efibootmgr: ** Warning ** : Boot0005 has same label ironic1\n
                     mock.call('udevadm', 'settle'),
                     mock.call('mount', self.fake_efi_system_part,
                               self.fake_dir + '/boot/efi'),
-                    mock.call('efibootmgr'),
-                    mock.call('efibootmgr', '-c', '-d', self.fake_dev,
+                    mock.call('efibootmgr', '-v'),
+                    mock.call('efibootmgr', '-v', '-c', '-d', self.fake_dev,
                               '-p', '1', '-w',
                               '-L', 'ironic1', '-l',
                               '\\EFI\\BOOT\\BOOTX64.EFI'),
@@ -2145,8 +2270,8 @@ efibootmgr: ** Warning ** : Boot0005 has same label ironic1\n
                     mock.call('udevadm', 'settle'),
                     mock.call('mount', self.fake_efi_system_part,
                               self.fake_dir + '/boot/efi'),
-                    mock.call('efibootmgr'),
-                    mock.call('efibootmgr', '-c', '-d', self.fake_dev,
+                    mock.call('efibootmgr', '-v'),
+                    mock.call('efibootmgr', '-v', '-c', '-d', self.fake_dev,
                               '-p', '1', '-w',
                               '-L', 'Vendor String', '-l',
                               '\\EFI\\vendor\\shimx64.efi'),
@@ -2185,8 +2310,8 @@ efibootmgr: ** Warning ** : Boot0005 has same label ironic1\n
                     mock.call('udevadm', 'settle'),
                     mock.call('mount', '/dev/fakenvme0p1',
                               self.fake_dir + '/boot/efi'),
-                    mock.call('efibootmgr'),
-                    mock.call('efibootmgr', '-c', '-d', '/dev/fakenvme0',
+                    mock.call('efibootmgr', '-v'),
+                    mock.call('efibootmgr', '-v', '-c', '-d', '/dev/fakenvme0',
                               '-p', '1', '-w',
                               '-L', 'ironic1', '-l',
                               '\\EFI\\BOOT\\BOOTX64.EFI'),
@@ -2225,8 +2350,8 @@ efibootmgr: ** Warning ** : Boot0005 has same label ironic1\n
                     mock.call('udevadm', 'settle'),
                     mock.call('mount', self.fake_efi_system_part,
                               self.fake_dir + '/boot/efi'),
-                    mock.call('efibootmgr'),
-                    mock.call('efibootmgr', '-c', '-d', self.fake_dev,
+                    mock.call('efibootmgr', '-v'),
+                    mock.call('efibootmgr', '-v', '-c', '-d', self.fake_dev,
                               '-p', '1', '-w',
                               '-L', 'ironic1', '-l',
                               '\\EFI\\BOOT\\BOOTX64.EFI'),
@@ -2332,8 +2457,8 @@ efibootmgr: ** Warning ** : Boot0005 has same label ironic1\n
                                        self.fake_dev,
                                        self.fake_efi_system_part,
                                        self.fake_dir)
-        expected = [mock.call('efibootmgr'),
-                    mock.call('efibootmgr', '-c', '-d', self.fake_dev,
+        expected = [mock.call('efibootmgr', '-v'),
+                    mock.call('efibootmgr', '-v', '-c', '-d', self.fake_dev,
                               '-p', self.fake_efi_system_part, '-w',
                               '-L', 'ironic1', '-l',
                               '\\EFI\\BOOT\\BOOTX64.EFI')]

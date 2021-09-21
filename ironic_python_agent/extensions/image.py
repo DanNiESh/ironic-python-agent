@@ -273,8 +273,8 @@ def _run_efibootmgr(valid_efi_bootloaders, device, efi_partition,
     """
 
     # Before updating let's get information about the bootorder
-    LOG.debug("Getting information about boot order")
-    utils.execute('efibootmgr')
+    LOG.debug("Getting information about boot order.")
+    utils.execute('efibootmgr', '-v')
     # NOTE(iurygregory): regex used to identify the Warning in the stderr after
     # we add the new entry. Example:
     # "efibootmgr: ** Warning ** : Boot0004 has same label ironic"
@@ -283,6 +283,8 @@ def _run_efibootmgr(valid_efi_bootloaders, device, efi_partition,
     label_id = 1
     for v_bl in valid_efi_bootloaders:
         if 'csv' in v_bl.lower():
+            LOG.debug('A CSV file has been identified as a bootloader hint. '
+                      'File: %s', v_bl)
             # These files are always UTF-16 encoded, sometimes have a header.
             # Positive bonus is python silently drops the FEFF header.
             with open(mount_point + '/' + v_bl, 'r', encoding='utf-16') as csv:
@@ -301,7 +303,7 @@ def _run_efibootmgr(valid_efi_bootloaders, device, efi_partition,
                                'dev': device})
         # Update the nvram using efibootmgr
         # https://linux.die.net/man/8/efibootmgr
-        cmd = utils.execute('efibootmgr', '-c', '-d', device,
+        cmd = utils.execute('efibootmgr', '-v', '-c', '-d', device,
                             '-p', efi_partition, '-w', '-L', label,
                             '-l', v_efi_bl_path)
         for line in cmd[1].split('\n'):
@@ -328,7 +330,7 @@ def _manage_uefi(device, efi_system_part_uuid=None):
     """
     efi_partition_mount_point = None
     efi_mounted = False
-
+    LOG.debug('Attempting UEFI loader autodetection and NVRAM record setup.')
     try:
         # Force UEFI to rescan the device.
         _rescan_device(device)
@@ -381,6 +383,7 @@ def _manage_uefi(device, efi_system_part_uuid=None):
         else:
             # NOTE(dtantsur): if we have an empty EFI partition, try to use
             # grub-install to populate it.
+            LOG.warning('Empty EFI partition detected.')
             return False
 
     except processutils.ProcessExecutionError as e:
@@ -486,8 +489,9 @@ def _prepare_boot_partitions_for_softraid(device, holders, efi_part,
 
         # RAID the ESPs, metadata=1.0 is mandatory to be able to boot
         md_device = '/dev/md/esp'
-        LOG.debug("Creating md device {} for the ESPs on {}".format(
-                  md_device, efi_partitions))
+        LOG.debug("Creating md device %(md_device)s for the ESPs "
+                  "on %(efi_partitions)s",
+                  {'md_device': md_device, 'efi_partitions': efi_partitions})
         utils.execute('mdadm', '--create', md_device, '--force',
                       '--run', '--metadata=1.0', '--level', '1',
                       '--raid-devices', len(efi_partitions),
@@ -549,6 +553,29 @@ def _umount_all_partitions(path, path_variable, umount_warn_msg):
             LOG.warning(umount_warn_msg, {'path': path + fs, 'error': e})
 
     return umount_binds_success
+
+
+def _mount_partition(partition, path):
+    if not os.path.ismount(path):
+        LOG.debug('Attempting to mount %(device)s to %(path)s to '
+                  'partition.',
+                  {'device': partition,
+                   'path': path})
+        try:
+            utils.execute('mount', partition, path)
+        except processutils.ProcessExecutionError as e:
+            # NOTE(TheJulia): It seems in some cases,
+            # the python os.path.ismount can return False
+            # even *if* it is actually mounted. This appears
+            # to be becasue it tries to rely on inode on device
+            # logic, yet the rules are sometimes different inside
+            # ramdisks. So lets check the error first.
+            if 'already mounted' not in e:
+                # Raise the error, since this is not a known
+                # failure case
+                raise
+            else:
+                LOG.debug('Partition already mounted, proceeding.')
 
 
 def _install_grub2(device, root_uuid, efi_system_part_uuid=None,
@@ -638,11 +665,9 @@ def _install_grub2(device, root_uuid, efi_system_part_uuid=None,
                 # remounted.
                 LOG.debug('No EFI assets were preserved for setup or the '
                           'ramdisk was unable to complete the setup. '
-                          'falling back to bootloader installation from'
+                          'falling back to bootloader installation from '
                           'deployed image.')
-                if not os.path.ismount(path):
-                    LOG.debug('Re-mounting the root partition.')
-                    utils.execute('mount', root_partition, path)
+                _mount_partition(root_partition, path)
 
         binary_name = "grub"
         if os.path.exists(os.path.join(path, 'usr/sbin/grub2-install')):
@@ -662,7 +687,8 @@ def _install_grub2(device, root_uuid, efi_system_part_uuid=None,
             LOG.warning("GRUB2 will be installed for UEFI on efi partition "
                         "%s using the install command which does not place "
                         "Secure Boot signed binaries.", efi_partition)
-            utils.execute('mount', efi_partition, efi_partition_mount_point)
+
+            _mount_partition(efi_partition, efi_partition_mount_point)
             efi_mounted = True
             try:
                 utils.execute('chroot %(path)s /bin/sh -c '

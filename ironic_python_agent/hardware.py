@@ -127,6 +127,17 @@ def _udev_settle():
         return
 
 
+def _load_ipmi_modules():
+    """Load kernel modules required for IPMI interaction.
+
+    This is required to be called at least once before attempting to use
+    ipmitool or related tools.
+    """
+    il_utils.try_execute('modprobe', 'ipmi_msghandler')
+    il_utils.try_execute('modprobe', 'ipmi_devintf')
+    il_utils.try_execute('modprobe', 'ipmi_si')
+
+
 def _check_for_iscsi():
     """Connect iSCSI shared connected via iBFT or OF.
 
@@ -436,7 +447,7 @@ def list_all_block_devices(block_type='disk',
         # media, however USB devices are also flagged as removable media.
         # we have to explicitly do this as floppy disks are type disk.
         if ignore_floppy and str(device.get('KNAME')).startswith('fd'):
-            LOG.debug('Ignoring floppy disk device %s', device)
+            LOG.debug('Ignoring floppy disk device: %s', line)
             continue
 
         # Search for raid in the reply type, as RAID is a
@@ -445,13 +456,16 @@ def list_all_block_devices(block_type='disk',
         #   lvm, part, rom, loop
         if devtype != block_type:
             if devtype is None or ignore_raid:
-                LOG.debug("Skipping: {!r}".format(line))
+                LOG.debug(
+                    "TYPE did not match. Wanted: %(block_type)s but found: "
+                    "%(line)s (RAID devices are ignored)",
+                    {'block_type': block_type, 'line': line})
                 continue
             elif ('raid' in devtype
                   and block_type in ['raid', 'disk']):
                 LOG.debug(
                     "TYPE detected to contain 'raid', signifying a "
-                    "RAID volume. Found: {!r}".format(line))
+                    "RAID volume. Found: %s", line)
             elif (devtype == 'md'
                   and (block_type == 'part'
                        or block_type == 'md')):
@@ -461,11 +475,11 @@ def list_all_block_devices(block_type='disk',
                 # more detail.
                 LOG.debug(
                     "TYPE detected to contain 'md', signifying a "
-                    "RAID partition. Found: {!r}".format(line))
+                    "RAID partition. Found: %s", line)
             else:
                 LOG.debug(
-                    "TYPE did not match. Wanted: {!r} but found: {!r}".format(
-                        block_type, line))
+                    "TYPE did not match. Wanted: %(block_type)s but found: "
+                    "%(line)s", {'block_type': block_type, 'line': line})
                 continue
 
         # Ensure all required columns are at least present, even if blank
@@ -704,6 +718,9 @@ class HardwareManager(object, metaclass=abc.ABCMeta):
     def get_bmc_address(self):
         raise errors.IncompatibleHardwareMethodError()
 
+    def get_bmc_mac(self):
+        raise errors.IncompatibleHardwareMethodError()
+
     def get_bmc_v6address(self):
         raise errors.IncompatibleHardwareMethodError()
 
@@ -829,6 +846,14 @@ class HardwareManager(object, metaclass=abc.ABCMeta):
         hardware_info['system_vendor'] = self.get_system_vendor_info()
         hardware_info['boot'] = self.get_boot_info()
         hardware_info['hostname'] = netutils.get_hostname()
+
+        try:
+            hardware_info['bmc_mac'] = self.get_bmc_mac()
+        except errors.IncompatibleHardwareMethodError:
+            # if the hardware manager does not support obtaining the BMC MAC,
+            # we simply don't expose it.
+            pass
+
         LOG.info('Inventory collected in %.2f second(s)', time.time() - start)
         return hardware_info
 
@@ -973,6 +998,7 @@ class GenericHardwareManager(HardwareManager):
         # Do some initialization before we declare ourself ready
         _check_for_iscsi()
         _md_scan_and_assemble()
+        _load_ipmi_modules()
         self.wait_for_disks()
         return HardwareSupport.GENERIC
 
@@ -1418,6 +1444,14 @@ class GenericHardwareManager(HardwareManager):
         """
         burnin.stress_ng_vm(node)
 
+    def burnin_network(self, node, ports):
+        """Burn-in the network
+
+        :param node: Ironic node object
+        :param ports: list of Ironic port objects
+        """
+        burnin.fio_network(node)
+
     def _shred_block_device(self, node, block_device):
         """Erase a block device using shred.
 
@@ -1746,11 +1780,6 @@ class GenericHardwareManager(HardwareManager):
         :return: IP address of lan channel or 0.0.0.0 in case none of them is
                  configured properly
         """
-        # These modules are rarely loaded automatically
-        il_utils.try_execute('modprobe', 'ipmi_msghandler')
-        il_utils.try_execute('modprobe', 'ipmi_devintf')
-        il_utils.try_execute('modprobe', 'ipmi_si')
-
         try:
             # From all the channels 0-15, only 1-11 can be assigned to
             # different types of communication media and protocols and
@@ -1782,6 +1811,52 @@ class GenericHardwareManager(HardwareManager):
 
         return '0.0.0.0'
 
+    def get_bmc_mac(self):
+        """Attempt to detect BMC MAC address
+
+        :return: MAC address of the first LAN channel or 00:00:00:00:00:00 in
+                 case none of them has one or is configured properly
+        """
+        try:
+            # From all the channels 0-15, only 1-11 can be assigned to
+            # different types of communication media and protocols and
+            # effectively used
+            for channel in range(1, 12):
+                out, e = utils.execute(
+                    "ipmitool lan print {} | awk '/(IP|MAC) Address[ \\t]*:/"
+                    " {{print $4}}'".format(channel), shell=True)
+                if e.startswith("Invalid channel"):
+                    continue
+
+                try:
+                    ip, mac = out.strip().split("\n")
+                except ValueError:
+                    LOG.warning('Invalid ipmitool output %(output)s',
+                                {'output': out})
+                    continue
+
+                if ip == "0.0.0.0":
+                    # disabled, ignore
+                    continue
+
+                if not re.match("^[0-9a-f]{2}(:[0-9a-f]{2}){5}$", mac, re.I):
+                    LOG.warning('Invalid MAC address %(output)s',
+                                {'output': mac})
+                    continue
+
+                # In case we get 00:00:00:00:00:00 on a valid channel, we need
+                # to keep querying
+                if mac != '00:00:00:00:00:00':
+                    return mac
+
+        except (processutils.ProcessExecutionError, OSError) as e:
+            # Not error, because it's normal in virtual environment
+            LOG.warning("Cannot get BMC MAC address: %s", e)
+            return
+
+        # no valid mac found, signal this clearly
+        raise errors.IncompatibleHardwareMethodError()
+
     def get_bmc_v6address(self):
         """Attempt to detect BMC v6 address
 
@@ -1789,11 +1864,6 @@ class GenericHardwareManager(HardwareManager):
                  configured properly. May return None value if it cannot
                  interract with system tools or critical error occurs.
         """
-        # These modules are rarely loaded automatically
-        il_utils.try_execute('modprobe', 'ipmi_msghandler')
-        il_utils.try_execute('modprobe', 'ipmi_devintf')
-        il_utils.try_execute('modprobe', 'ipmi_si')
-
         null_address_re = re.compile(r'^::(/\d{1,3})*$')
 
         def get_addr(channel, dynamic=False):
@@ -1907,6 +1977,13 @@ class GenericHardwareManager(HardwareManager):
             },
             {
                 'step': 'burnin_memory',
+                'priority': 0,
+                'interface': 'deploy',
+                'reboot_requested': False,
+                'abortable': True
+            },
+            {
+                'step': 'burnin_network',
                 'priority': 0,
                 'interface': 'deploy',
                 'reboot_requested': False,
