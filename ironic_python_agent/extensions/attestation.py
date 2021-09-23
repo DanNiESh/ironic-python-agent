@@ -66,7 +66,7 @@ class AttestationExtension(base.BaseAgentExtension):
         except processutils.ProcessExecutionError as e:
             error_msg = ('Getting hash_ek failed with an error: %s' % e)
             LOG.error(error_msg)
-            raise errors.CommandExecutionError(error_msg)
+            # raise errors.CommandExecutionError(error_msg)
         finally:
             shutil.rmtree(genesis_tpm_temp)
 
@@ -86,6 +86,6 @@ class AttestationExtension(base.BaseAgentExtension):
         if any([v is None for v in keylime_dict.values()]):
             msg = 'Incomplete keylime agent information!'
             LOG.error(msg)
-            raise errors.CommandExecutionError(msg)
+            # raise errors.CommandExecutionError(msg)
 
         return keylime_dict
